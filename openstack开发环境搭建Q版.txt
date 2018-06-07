@@ -78,6 +78,7 @@ NOVA_USE_MOD_WSGI=False
 TARGET_BRANCH=stable/queens
 DOWNLOAD_DEFAULT_IMAGES=False
 NEUTRON_CREATE_INITIAL_NETWORKS=False
+disable_service tempest
 GIT_BASE=http://git.trystack.cn
 NOVNC_REPO=http://git.trystack.cn/kanaka/noVNC.git
 enable_plugin zun http://git.trystack.cn/openstack/zun stable/queens
