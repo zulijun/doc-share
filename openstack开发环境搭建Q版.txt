@@ -6,3 +6,8 @@
 #虚拟机作为host需要打开intel-VTX
 #需要安装图形化界面以运行PyCharm
 #语言建议选用英文以避免字符问题
+
+安装图形化界面（centos是最小安装）
+yum install -y @gnome
+yum install -y @X11
+systemctl set-default runlevel5
