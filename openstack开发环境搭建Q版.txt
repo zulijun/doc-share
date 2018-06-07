@@ -1,0 +1,8 @@
+官方文档:https://docs.openstack.org/devstack/latest/
+
+#0.CentOS系统安装要求
+#测试安装使用的是CentOS7.4
+#虚拟机最低配置2核心6GB内存
+#虚拟机作为host需要打开intel-VTX
+#需要安装图形化界面以运行PyCharm
+#语言建议选用英文以避免字符问题
