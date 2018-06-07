@@ -104,6 +104,11 @@ EOF
 如果遇到文件下载不下来，比如https://github.com/coreos/etcd/releases/download/v3.1.10/etcd-v3.1.10-linux-amd64.tar.gz，可以在自行通过wget等下载至/opt/stack/devstack/files文件夹下后，重新安装（一般直接再装就可以了）
 如果遇到pip源的版本找不到，请自行根据报错提示修改/opt/stack/requirements/upper-constraints.txt的相应内容
 如果出现SyntaxError: '<' operator not allowed in environment markers,需要安装sudo pip install --upgrade setuptools
+如果是pip源里的pbr版本不是最新版造成问题，要自行安装
+git clone http://git.trystack.cn/openstack-dev/pbr
+cd pbr
+sudo pip install
+
 #如果仍然报错,请先执行如下脚本
 ~/devstack/unstack.sh
 
