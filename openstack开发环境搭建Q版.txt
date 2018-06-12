@@ -120,6 +120,20 @@ sudo systemctl disable iptables
 
 #15.登录dashboard时可能会有报错,刷新页面即可
 
+#16.命令行测试
+source /opt/stack/devstack/openrc admin admin
+zun list
+查看是否有输出，如果出现http406，降低zun client的版本sudo pip install python-zunclient==1.2.0
+
+使用docker hub下载
+zun run --name test cirros ping -c 4 8.8.8.8
+
+使用glance测试
+docker pull cirros
+docker save cirros | openstack image create dockder-test --public --container-format docker --disk-format raw
+事先添加网络后
+zun run --image-driver glance docker-test ping -c 4 8.8.8.8
+
 #16.安装PyCharm
 su - root
 cd /opt/
