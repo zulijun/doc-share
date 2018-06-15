@@ -120,6 +120,12 @@ sudo systemctl stop iptables
 sudo systemctl disable iptables
 
 #15.登录dashboard时可能会有报错,刷新页面即可
+如果部署机重启需要重新增加虚拟磁盘供cinder使用
+losetup /dev/loop0 /opt/stack/data/stack-volumes-default-backing-file
+losetup /dev/loop1 /opt/stack/data/stack-volumes-lvmdriver-1-backing-file
+
+重启后记得重启kuryr，现在版本有bug
+systemctl restart devstack@kuryr-libnetwork
 
 #16.命令行测试
 source /opt/stack/devstack/openrc admin admin

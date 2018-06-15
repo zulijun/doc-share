@@ -16,6 +16,8 @@ systemd附带的主要功能之一是日志记录，这是一种访问日志的�
 查看特定的服务日志：
 sudo journalctl -f --unit devstack@n-cpu.service
 
+sudo journalctl -f --unit devstack@zun-compute.service
+
 查看多个服务的日志：
 sudo journalctl -f --unit devstack@n-cpu.service --unit devstack@n-cond.service
 
