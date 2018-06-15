@@ -112,6 +112,7 @@ sudo pip install
 
 #如果仍然报错,请先执行如下脚本
 ~/devstack/unstack.sh
+卸载后，必须在local.conf中增加enable_service placement-api
 
 #14.安装完成启用WEB服务,停止并禁用iptables服务
 sudo systemctl enable httpd
@@ -124,15 +125,20 @@ sudo systemctl disable iptables
 source /opt/stack/devstack/openrc admin admin
 zun list
 查看是否有输出，如果出现http406，降低zun client的版本sudo pip install python-zunclient==1.2.0
+httpd的服务重启（不然horizon会报错）
+systemctl restart httpd
 
 使用docker hub下载
 zun run --name test cirros ping -c 4 8.8.8.8
 
 使用glance测试
 docker pull cirros
-docker save cirros | openstack image create dockder-test --public --container-format docker --disk-format raw
+docker save cirros | openstack image create docker-test --public --container-format docker --disk-format raw
 事先添加网络后
-zun run --image-driver glance docker-test ping -c 4 8.8.8.8
+zun run --image-driver glance docker-test ping 127.0.0.1
+
+物理主机寻找命令
+nova-manage cell_v2 discover_hosts
 
 #16.安装PyCharm
 su - root
