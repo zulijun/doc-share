@@ -1,0 +1,256 @@
+Kolla-ansible_Zun_多节点部署_Queens版本
+
+#参考文档
+#[1] https://docs.openstack.org/kolla-ansible/latest/user/multinode.html
+#[2] https://docs.openstack.org/kolla-ansible/latest/reference/zun-guide.html
+
+#建议使用三个网口
+#第一个网口连接管理网,配置管理IP地址,网关
+#第二个网口作为隧道网络,配置IP地址
+#第三个网口连接外部网络,不配置IP地址:ONBOOT=yes,BOOTPROTO=none
+
+
+#配置主机名(建议使用如下名称)
+#Kolla-ansible节点(部署Kolla-ansible)
+hostnamectl set-hostname kolla01
+#控制节点(部署OpenStack API等服务)
+hostnamectl set-hostname control01
+#计算节点(部署OpenStack计算服务)
+hostnamectl set-hostname compute01
+hostnamectl set-hostname compute02
+hostnamectl set-hostname compute03
+
+
+#所有节点配置/etc/hosts,使用管理IP地址
+echo -e '192.168.122.113\tkolla01' >> /etc/hosts
+echo -e '192.168.122.114\tcontrol01' >> /etc/hosts
+echo -e '192.168.122.115\tcompute01' >> /etc/hosts
+echo -e '192.168.122.116\tcompute02' >> /etc/hosts
+echo -e '192.168.122.117\tcompute03' >> /etc/hosts
+
+
+#所有节点配置环境
+systemctl disable NetworkManager firewalld
+systemctl stop NetworkManager firewalld
+setenforce 0
+sed -i "s/^SELINUX=enforcing/SELINUX=disabled/" /etc/selinux/config
+
+
+#kolla01节点配置epel源并安装软件包
+yum -y install epel-release
+yum -y install git curl wget
+
+
+#所有节点安装NTP服务
+yum -y install ntp
+systemctl enable ntpd
+systemctl start ntpd
+
+#所有节点安装docker-ce并启用服务(不要启动该服务)
+wget -O /etc/yum.repos.d/docker-ce.repo https://mirrors.ustc.edu.cn/docker-ce/linux/centos/docker-ce.repo
+sed -i 's+download.docker.com+mirrors.ustc.edu.cn/docker-ce+' /etc/yum.repos.d/docker-ce.repo
+yum -y install docker-ce python-pip deltarpm
+systemctl enable docker
+
+
+#所有节点配置docker仓库(使用国内加速,可选)
+wget -O- https://get.daocloud.io/daotools/set_mirror.sh | sh -s http://f5dad4ec.m.daocloud.io
+
+
+#所有节点打开shared mount功能
+mkdir -p /etc/systemd/system/docker.service.d
+cat << EOF > /etc/systemd/system/docker.service.d/kolla.conf 
+[Service]
+MountFlags=shared
+EOF
+
+#control节点和compute节点修改服务配置,IP地址替换为本地管理IP地址
+vim /etc/systemd/system/multi-user.target.wants/docker.service
+ExecStart=/usr/bin/dockerd -H tcp://192.168.122.117:2375 -H unix:///var/run/docker.sock --cluster-store=etcd://192.168.122.117:2379 --cluster-advertise=192.168.122.117:2375
+systemctl daemon-reload
+systemctl restart docker
+#检查docker配置
+ps -ef | grep dockerd
+
+
+#kolla01节点安装ansible(版本>2.0)
+yum -y install ansible
+
+
+#kolla01节点配置RSA免密登录
+ssh-copy-id root@kolla01
+ssh-copy-id root@control01
+ssh-copy-id root@compute01
+ssh-copy-id root@compute02
+ssh-copy-id root@compute03
+
+
+#所有节点PIP源设置
+mkdir -p ~/.pip
+cat > ~/.pip/pip.conf << EOF
+[global]
+index-url = https://mirrors.ustc.edu.cn/pypi/web/simple
+format = columns
+EOF
+#pip安装docker
+pip install docker
+
+
+#kolla01节点下载kolla-ansible并安装
+git clone http://git.trystack.cn/openstack/kolla-ansible -b stable/queens
+cd kolla-ansible/
+cp -r etc/kolla /etc/kolla
+pip install -r requirements.txt
+pip install .
+
+
+#kolla01节点生成密码文件
+kolla-genpwd
+
+
+#kolla01节点编辑/etc/kolla/passwords.yml文件,配置keystone管理员用户密码
+keystone_admin_password: password
+
+
+#kolla01节点修改globals.yml文件,修改其中的IP地址为control节点管理IP地址
+cp /etc/kolla/globals.yml /etc/kolla/globals.yml.bak
+cat << EOF > /etc/kolla/globals.yml
+---
+kolla_base_distro: "centos"
+kolla_install_type: "source"
+openstack_release: "queens"
+kolla_internal_vip_address: "192.168.122.114"
+docker_namespace: "kolla"
+network_interface: "eth0"
+neutron_external_interface: "eth2"
+tunnel_interface: "eth1"
+neutron_plugin_agent: "openvswitch"
+enable_opendaylight_l3: "no"
+enable_cinder_backup: "no"
+enable_etcd: "yes"
+enable_fluentd: "no"
+enable_haproxy: "no"
+enable_heat: "no"
+enable_kuryr: "yes"
+enable_zun: "yes"
+nova_compute_virt_type: "kvm"
+tempest_image_id:
+tempest_flavor_ref_id:
+tempest_public_network_id:
+tempest_floating_network_name:
+EOF
+
+
+#kolla01节点编辑multinode文件
+#可参考Kolla-ansible_Zun_multinode
+cd ~/kolla-ansible/ansible/inventory/
+vim multinode
+
+
+#kolla01节点检查多节点配置
+kolla-ansible -i multinode prechecks -vvv
+
+
+#注释如下代码,避免安装老版本docker
+vim /usr/share/kolla-ansible/ansible/roles/baremetal/tasks/pre-install.yml
+123 #- name: Enable docker repo yum
+124 #  become: True
+125 #  template:
+126 #    src: docker_yum_repo.j2
+127 #    dest: /etc/yum.repos.d/docker.repo
+128 #  when: ansible_os_family == 'RedHat'
+129 
+130 #- name: Install docker rpm gpg key
+131 #  rpm_key:
+132 #    state: present
+133 #    key: "{{ docker_yum_url }}/gpg"
+134 #  become: True
+135 #  when: ansible_os_family == 'RedHat'
+
+#kolla01节点准备所有服务器基础环境
+kolla-ansible -i multinode bootstrap-servers -vvv
+
+
+#kolla01节点批量pull镜像
+kolla-ansible -i multinode pull -vvv
+
+
+#kolla01节点部署镜像
+kolla-ansible -i multinode deploy -vvv
+
+
+#kolla01节点创建/etc/kolla/admin-openrc.sh环境变量文件
+kolla-ansible post-deploy -vvv
+cp /etc/kolla/admin-openrc.sh ~
+
+
+#kolla01节点安装OpenStack Client
+yum -y install gcc python-devel
+pip install python-openstackclient python-zunclient==1.2.0
+
+
+#kolla01节点编辑init-runonce文件,设置public network
+vim /usr/share/kolla-ansible/init-runonce
+EXT_NET_CIDR='192.168.200.0/24'
+EXT_NET_RANGE='start=192.168.200.50,end=192.168.200.99'
+EXT_NET_GATEWAY='192.168.200.1'
+
+
+#kolla01节点加载OpenStack CLI所需的环境变量
+source ~/admin-openrc.sh
+#初始化部署
+/usr/share/kolla-ansible/init-runonce
+
+#创建租户网络
+
+
+#kolla01节点上传docker镜像至glance
+docker pull cirros
+docker save cirros | openstack image create cirros-docker --public --container-format docker --disk-format raw
+#创建容器
+zun create --name test --net network=demo-net --image-driver glance cirros-docker ping -c 4 8.8.8.8
+#验证
+zun list
+#启动
+zun start test
+
+
+
+######重新部署######
+#删除所有安装
+kolla-ansible destroy -i multinode --yes-i-really-really-mean-it
+
+#用于从系统中移除部署的容器:
+tools/cleanup-containers
+#用于移除由于网络变化引发的 Docker 启动的neutron-agents 主机：
+tools/cleanup-host
+#用于从本地缓存中移除所有的 Docker image
+tools/cleanup-image
+
+
+######Docker命令######
+#查看卷
+docker volume ls
+
+#查看指定的卷
+docker volume inspect container_name
+
+#查看指定容器的输出日志信息
+docker logs container_name
+
+#查看指定服务的日志
+cd /var/lib/docker/volumes/kolla_logs/_data/
+
+#在容器中执行命令
+docker exec -it -u root container_name bash
+
+#清理本地所有容器
+for C in $(docker ps -a | awk '{print$NF}'); do docker stop $C; docker rm $C; done
+
+
+
+
+
+
+
+

@@ -1,28 +1,50 @@
+#创建镜像
+openstack image create --disk-format qcow2 --container-format bare --public --property os_type=linux --file cirros-0.3.5-x86_64-disk.img cirros
+
 #创建供应商网络
 openstack network create  --share --external --provider-physical-network public --provider-network-type flat public
+
 #创建供应商网络子网
-openstack subnet create --network public --allocation-pool start=172.16.26.50,end=172.16.26.78 --dns-nameserver 202.96.209.133 --gateway 172.16.26.254 --subnet-range 172.16.26.0/24 subnet
+openstack subnet create --network public --allocation-pool start=172.16.26.50,end=172.16.26.78 --dns-nameserver 202.96.209.133 --gateway 172.16.26.254 --subnet-range 172.16.26.0/24 subnet1
+
 #创建自服务网络1,2
-openstack network create admin-net1
-openstack network create admin-net2
+openstack network create --provider-network-type vxlan admin-net1
+openstack network create --provider-network-type vxlan admin-net2
+
 #创建自服务网络1,2子网
 openstack subnet create --network admin-net1 --dns-nameserver 202.96.209.133 --gateway 10.1.1.1 --subnet-range 10.1.1.0/24 net1-subnet1
 openstack subnet create --network admin-net2 --dns-nameserver 202.96.209.133 --gateway 10.2.2.1 --subnet-range 10.2.2.0/24 net2-subnet1
 
 #创建路由器
 openstack router create admin-router1
+
 #添加网络1,2子网至路由器
-neutron router-interface-add admin-router1 net1-subnet1
-neutron router-interface-add admin-router1 net2-subnet1
+openstack router add subnet admin-router1 net1-subnet1
+openstack router add subnet admin-router1 net2-subnet1
+
 #设置路由器网关
-neutron router-gateway-set admin-router1 public
+openstack router set --external-gateway public admin-router1
+
 #验证
 ip netns
 neutron router-port-list admin-router1
 
+#安全组添加icmp放行(注意替换变量)
+openstack security group list --project $PROJECT_ID
+openstack security group rule create --ingress --ethertype IPv4 --protocol icmp $SECURITY_GROUP_ID
+openstack security group rule create --ingress --ethertype IPv4 --protocol tcp --dst-port 22 $SECURITY_GROUP_ID
+
+#创建flavor
+openstack flavor create --id 256 --ram 256 --disk 0 --vcpus 1 cirros256
+
+#创建密钥对
+openstack keypair create --public-key /root/.ssh/id_rsa.pub mykey
+
 #批量创建云主机
 openstack server create --flavor cirros256 --image cirros-0.3.5-x86_64-disk --network admin-net1 --min 3 --max 3 --wait admin-net1
 openstack server create --flavor cirros256 --image cirros-0.3.5-x86_64-disk --network admin-net2 --min 3 --max 3 --wait admin-net2
+
+
 
 
 
