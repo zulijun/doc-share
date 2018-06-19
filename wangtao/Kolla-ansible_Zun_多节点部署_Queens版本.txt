@@ -79,13 +79,13 @@ cd ~
 git clone http://git.trystack.cn/openstack/kolla-ansible -b stable/queens
 
 
-#修改如下代码
+#安装前修改如下文件
 sed -i 's/^ - docker/# - docker/' ~/kolla-ansible/ansible/roles/baremetal/defaults/main.yml
 cat << EOF > ~/kolla-ansible/ansible/roles/baremetal/templates/docker_systemd_service.j2
 [Service]
 MountFlags=shared
 ExecStart=
-ExecStart=/usr/bin/dockerd -H tcp://{{ api_interface_address }}:2375 -H unix:///var/run/docker.sock --cluster-store=etcd://{{ api_interface_address }}:2379 --cluster-advertise={{ api_interface_address }}:2375
+ExecStart=/usr/bin/{{ docker_binary_name|default("docker daemon", true) }}{% if docker_registry %} --insecure-registry {{ docker_registry }}{% endif %}{% if docker_storage_driver %} --storage-driver {{ docker_storage_driver }}{% endif %} -H tcp://{{ api_interface_address }}:2375 -H unix:///var/run/docker.sock --cluster-store=etcd://{{ api_interface_address }}:2379 --cluster-advertise={{ api_interface_address }}:2375
 EOF
 
 
