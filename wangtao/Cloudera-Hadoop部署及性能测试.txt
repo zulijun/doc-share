@@ -1,0 +1,270 @@
+﻿#Cloudera-Hadoop部署及性能测试
+
+######数据节点环境准备######
+#1.数据节点格式化磁盘,配置/etc/fstab并挂载
+mkdir /mnt/disk0{1..8}
+cat << EOF >> /etc/fstab
+/dev/sdb1              /mnt/disk01             xfs     rw,noatime,nodiratime        0 0
+/dev/sdc1              /mnt/disk02             xfs     rw,noatime,nodiratime        0 0
+/dev/sdd1              /mnt/disk03             xfs     rw,noatime,nodiratime        0 0
+/dev/sde1              /mnt/disk04             xfs     rw,noatime,nodiratime        0 0
+/dev/sdf1              /mnt/disk05             xfs     rw,noatime,nodiratime        0 0
+/dev/sdg1              /mnt/disk06             xfs     rw,noatime,nodiratime        0 0
+/dev/sdh1              /mnt/disk07             xfs     rw,noatime,nodiratime        0 0
+/dev/sdi1              /mnt/disk08             xfs     rw,noatime,nodiratime        0 0
+EOF
+cat /etc/fstab
+mount -a
+
+#2.防火墙禁用、/etc/hosts修改、配置时间同步(建议用chronyd,启动后响应快)
+
+#3.调整内核参数
+cat << EOF >> /etc/rc.local
+echo never > /sys/kernel/mm/transparent_hugepage/defrag
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
+EOF
+chmod +x  /etc/rc.local
+cat << EOF >> /etc/sysctl.conf
+vm.swappiness=0
+EOF
+
+#4.修改limits参数
+cat << EOF >> /etc/security/limits.conf
+*                -       core           3145728
+*                -       nofile          65535
+EOF
+
+
+
+########管理节点安装配置httpd并搭建yum/parcel源##########
+#1.下载文件
+https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/5.13.1/RPMS/
+
+#2.创建yum源
+cd /var/www/html/
+createrepo .
+find
+#/var/www/html/cloudera-manager-agent-5.13.1-1.cm5131.p0.2.el7.x86_64.rpm
+#/var/www/html/cloudera-manager-daemons-5.13.1-1.cm5131.p0.2.el7.x86_64.rpm
+#/var/www/html/cloudera-manager-server-5.13.1-1.cm5131.p0.2.el7.x86_64.rpm
+#/var/www/html/cloudera-manager-server-db-2-5.13.1-1.cm5131.p0.2.el7.x86_64.rpm
+#/var/www/html/oracle-j2sdk1.7-1.7.0+update67-1.x86_64.rpm
+#/var/www/html/RPM-GPG-KEY-cloudera
+#/var/www/html/repodata
+#/var/www/html/repodata/repomd.xml
+
+#3.按照目录格式创建parcel源
+find ./cdh5
+#/var/www/html/cdh5/parcels/5.13/manifest.json
+#/var/www/html/cdh5/parcels/5.13/CDH-5.13.1-1.cdh5.13.1.p0.2-el7.parcel
+#/var/www/html/cdh5/parcels/5.13/CDH-5.13.1-1.cdh5.13.1.p0.2-el7.parcel.sha1
+
+
+
+########管理节点安装数据库########
+#1.安装数据库
+yum -y install mariadb-server
+
+#2.修改字符 vim /etc/my.cnf
+[mysqld]
+collation-server = utf8_general_ci
+init-connect = 'SET NAMES utf8'
+character-set-server = utf8
+
+#3.启动/启用数据库服务
+systemctl start mariadb
+systemctl enable mariadb
+
+#4.配置用户名密码
+mysql_secure_installation
+root:root
+
+#5.创建cloudera-manager数据库并赋予权限。
+create database rm;
+create database cm;
+create database am;
+create database nas;
+create database nms;
+create database scm;
+GRANT ALL PRIVILEGES ON `rm`.* TO 'rm'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `am`.* TO 'am'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `nas`.* TO 'nas'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `nms`.* TO 'nms'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `scm`.* TO 'scm'@'%' identified by 'password';
+flush privileges;
+
+#6.创建hadoop集群数据库
+create database hive;
+create database metastore;
+create database hue;
+create database os;
+GRANT ALL PRIVILEGES ON `metastore`.* TO 'hive'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `hive`.* to 'hive'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `hue`.* to 'hue'@'%' identified by 'password';
+GRANT ALL PRIVILEGES ON `os`.* to 'os'@'%' identified by 'password';
+flush privileges;
+
+
+
+##########管理节点安装Cloudera Manager管理器##########
+#1.管理节点安装Cloudera管理器server
+rpm -ivh cloudera-manager-daemons 
+rpm -ivh cloudera-manager-server
+
+#2.所有节点上执行
+mkdir -p /usr/share/java
+mkdir -p /usr/share/cmf/lib
+cp mysql-connector-java.jar /usr/share/java
+cp mysql-connector-java.jar /usr/share/cmf/lib
+
+#3.管理节点初始化Cloudera数据库
+/usr/share/cmf/schema/scm_prepare_database.sh mysql -h192.168.122.113 scm scm password
+
+#4.启动Cloudera管理器服务
+service cloudera-scm-server start
+启动后就可以访问Cloudera管理器页面
+http://192.168.122.113:7180/cmf
+
+#5.打开URL,配置parcel
+http://192.168.122.113:7180/cmf/parcel/status
+#配置 -> 远程 Parcel 存储库 URL(修改URL如下,删除其它URL)
+http://192.168.122.113/cdh5/parcels/{latest_supported}/
+
+
+###########创建集群添加主机并配置角色###########
+#1.添加主机,切记不要使用单用户安装,勾选安装oracle-j2sdk1.7*.rpm
+http://192.168.122.113:7180/cmf/express-wizard/hosts
+
+#2.角色配置样例###
+#Cluster 1 -> 客户端角色配置
+manager01		B NN HS AP ES HM RM SM OS JHS RM S
+datanode01		DN SNN G NM
+datanode02		DN G HMS NM
+datanode03		DN G HS2 NM
+#Cluster 2 -> 客户端角色配置
+controlvm02		B NN G LB HS OS JHS RM S
+datanodevm01	DN SNN G NM
+datanodevm02	DN G NM
+datanodevm03	DN G HMS NM
+datanodevm04	DN G NM
+datanodevm05	DN G HS2 NM
+datanodevm06	DN G NM
+
+
+
+#################故障处理##################
+#安装CDH时候出现主机运行状态不良情况的解决
+rm -f /var/lib/cloudera-scm-agent/cm_guid
+service cloudera-scm-agent restart
+
+#while collecting data from host: No route to host
+systemctl disable firewalld
+systemctl stop firewalld
+
+#安装过程“正在获取安全锁”
+删除/tmp下所有scm_prepare_node.开头的文件，kill掉scm进程，清空yum缓存yum clean all
+
+#NameNode格式化失败
+删除NameNode节点的/data/dfs文件夹
+
+#CDH中的gateway实际为在client侧的一个代理，用于协助将Hive执行时所需要的配置文件部署到Hive的客户端。
+
+#Hue是一个开源的Apache Hadoop UI系统
+http://ju.outofmemory.cn/entry/105162
+Hue LB #yum -y install httpd mod_ssl
+
+#Oozie服务器中包含了用于触发和控制作业的组件，而客户端中包含了让用户可以触发Oozie操作并与Oozie服务器通信的组件。
+http://www.infoq.com/cn/articles/introductionOozie
+
+#YARN Hadoop新MapReduce框架
+NodeManager 功能比较专一，就是负责 Container 状态的维护，并向 RM 保持心跳。
+https://www.ibm.com/developerworks/cn/opensource/os-cn-hadoop-yarn/
+
+
+
+
+#############性能测试脚本##############
+#测试PI
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar pi 96 1000000000 #96Cores 80s-90s
+sleep 100 && echo -e '\n\n\n'
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar pi 96 10000000000 #96Cores 670s
+sleep 100 && echo -e '\n\n\n'
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar pi 96 10000000000 #96Cores 670s
+sleep 100 && echo -e '\n\n\n'
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar pi 96 10000000000 #96Cores 670s
+
+
+#测试1G Gen/Sort
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar teragen -Dmapred.map.tasks=80 10737418 terasort/1G-input01
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar terasort -Dmapred.reduce.tasks=96 terasort/1G-input01 terasort/1G-output01
+
+
+#删除terasort文件
+sudo -u hdfs hdfs dfs -rm -r -f terasort
+sudo -u hdfs hdfs dfs -rm -r -f .Trash
+
+
+#teragen测试脚本#96Cores 24x2TB SATA HDD 24min
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar teragen -Dmapred.map.tasks=80 10995116277 terasort/1T-input01
+sleep 600 && echo -e '\n\n\n'
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar teragen -Dmapred.map.tasks=80 10995116277 terasort/1T-input02
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar teragen -Dmapred.map.tasks=80 10995116277 terasort/1T-input03
+
+
+#terasort测试脚本#96Cores 24x2TB SATA HDD 67min
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar terasort -Dmapred.reduce.tasks=96 terasort/1T-input01 terasort/1T-output01
+sleep 600 && echo -e '\n\n\n'
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar terasort -Dmapred.reduce.tasks=96 terasort/1T-input02 terasort/1T-output02
+sleep 600 && echo -e '\n\n\n'
+sudo -u hdfs hadoop jar /opt/cloudera/parcels/CDH/jars/hadoop-examples.jar terasort -Dmapred.reduce.tasks=96 terasort/1T-input03 terasort/1T-output03
+
+
+#########附###########
+#物理机卸载磁盘
+cd /mnt
+for i in $(ls -d disk*); do umount $i; done
+#物理机创建pv
+for i in {b..i}; do pvcreate /dev/sd"$i"1 -y; done
+#物理机创建vg
+for i in {b..i}; do vgcreate vg"$i" /dev/sd"$i"1; done
+#物理机创建lv
+for i in {b..i}; do lvcreate -l 100%FREE -n lv$i vg$i; done
+
+
+#八块盘分区并格式化
+ls /dev/vd*
+for i in /dev/vd{b..i}
+do
+fdisk $i << EOF
+n
+p
+1
+2048
+
+w
+EOF
+mkfs.xfs "$i"1
+done
+
+#四块盘格式化
+ls /dev/vd*
+for i in /dev/vd{b..e}
+do
+mkfs.xfs "$i"1
+done
+
+#虚拟机挂载LVM参数
+    <disk type='block' device='disk'>
+      <driver name='qemu' type='raw' cache='none' io='native'/>
+      <source dev='/dev/vgb/lvb'/>
+      <target dev='vdb' bus='virtio'/>
+    </disk>
+
+
+
+
+
+
+
+
+
