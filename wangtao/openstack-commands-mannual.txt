@@ -1,3 +1,4 @@
+#######OpenStack初始化并创建Nova实例##########
 #创建镜像
 openstack image create --disk-format qcow2 --container-format bare --public --property os_type=linux --file cirros-0.3.5-x86_64-disk.img cirros
 
@@ -43,6 +44,71 @@ openstack keypair create --public-key /root/.ssh/id_rsa.pub mykey
 #批量创建云主机
 openstack server create --flavor cirros256 --image cirros-0.3.5-x86_64-disk --network admin-net1 --min 3 --max 3 --wait admin-net1
 openstack server create --flavor cirros256 --image cirros-0.3.5-x86_64-disk --network admin-net2 --min 3 --max 3 --wait admin-net2
+
+
+#########常用操作#########
+#显示所有创建的云实例
+openstack server list --all-projects
+nova list --all_tenants
+
+#使用Cinder卷创建云实例
+openstack server create --volume <volume> --flavor 4C8G100G  --nic net-id=<net-uuid> instance-name
+
+#删除卡在正在删除状态的Nova实例
+nova reset-state <server>
+openstack server delete <server>
+
+#删除Nova服务
+openstack compute service list
+openstack compute service delete <service>
+
+#Nova cell_v2检查升级
+nova-manage cell_v2 list_cells
+nova-status upgrade check
+
+#Nova cell_v2发现host
+nova-manage cell_v2 discover_hosts
+
+
+
+#删除Neutron Agent
+openstack network agent delete <network-agent>
+
+
+#######FWAAS API 2.0操作########
+#创建/列出/显示/删除防火墙规则
+openstack firewall group rule create --name egress-icmp --protocol icmp --ip-version 4 --source-ip-address 10.1.1.0/24 --action allow
+openstack firewall group rule create --name ingress-icmp --protocol icmp --ip-version 4 --destination-ip-address 10.1.1.0/24 --action deny
+openstack firewall group rule list
+openstack firewall group rule show egress-icmp
+
+#创建/列出/显示防火墙策略
+openstack firewall group policy create --firewall-rule egress-icmp 10.1.1.0-egress
+openstack firewall group policy create --firewall-rule ingress-icmp 10.1.1.0-ingress
+openstack firewall group policy list
+openstack firewall group policy show 10.1.1.0-egress
+
+#创建/列出/显示/删除防火墙组
+openstack firewall group create --name 10.1.1.0-firewallgroup
+openstack firewall group list
+openstack firewall group show 10.1.1.0-firewallgroup
+openstack firewall group delete 10.1.1.0-firewallgroup
+
+##显示路由器端口
+neutron router-port-list admin-router1
+#绑定/解绑路由器端口
+openstack firewall group set --port <name or id> 10.1.1.0-firewallgroup
+openstack firewall group set --no-port 10.1.1.0-firewallgroup
+
+#启用/禁用防火墙组
+openstack firewall group set --enable 10.1.1.0-firewallgroup
+openstack firewall group set --disable 10.1.1.0-firewallgroup
+
+#创建并绑定路由器端口
+openstack firewall group create --name 10.1.1.0-firewallgroup --port <name or id>
+
+
+
 
 
 

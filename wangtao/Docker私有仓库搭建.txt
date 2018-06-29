@@ -1,0 +1,114 @@
+#Docker私有仓库搭建
+#参考 https://blog.csdn.net/fgf00/article/details/52040492
+
+
+#############服务端运行Docker Registry服务#############
+#1.设置代理(可选)
+cat << EOF > /etc/systemd/system/docker.service.d/proxy.conf
+[Service]
+Environment="http_proxy=http://192.168.122.28:80" "https_proxy=http://192.168.122.28:80" "NO_PROXY=localhost,127.0.0.1,192.168.122.114"
+EOF
+systemctl daemon-reload
+systemctl restart docker
+
+#2.获取registry:2.6.2镜像
+docker pull registry:2.6.2
+
+#3.运行registry:2.6.2镜像，这里为防止与keystone冲突而采用了4000端口
+docker run -d -v /opt/registry:/var/lib/registry -p 4000:5000 --restart=always --name registry4000 registry:2.6.2
+
+#4.验证
+docker ps -a
+curl http://127.0.0.1:4000/v2/_catalog
+
+
+################配置docker客户端################
+#1.客户端添加私有仓库地址(注意daemon.json格式)
+mkdir -p /etc/docker/
+cat << EOF > /etc/docker/daemon.json 
+{
+  "insecure-registries": [
+    "kolla01:4000",
+    "192.168.122.113:4000"
+  ],
+  "registry-mirrors": [
+    "kolla01:4000",
+    "192.168.122.113:4000",
+    "http://f5dad4ec.m.daocloud.io"
+  ]
+}
+systemctl restart docker
+
+#2.客户端pull镜像
+docker pull alpine
+#docker tag alpine kolla01:4000/myalpine
+docker tag alpine 192.168.122.113:4000/myalpine
+
+#3.客户端push镜像到仓库
+#docker push kolla01:4000/myalpine
+docker push 192.168.122.113:4000/myalpine
+
+#4.验证
+curl http://192.168.122.113:4000/v2/_catalog
+
+
+
+#############老司机操作(可选)##############
+#1.批量上传镜像至docker仓库
+docker images | grep centos | awk '{print$1}'| awk -F'/' '{print$2}' | while read IMAGE; do docker tag kolla/$IMAGE:queens kolla01:4000/$IMAGE:queens; 
+done
+docker images | grep kolla01 | awk '{print$1}'| awk -F'/' '{print$2}' | while read IMAGE; do docker push kolla01:4000/$IMAGE:queens; done
+
+
+#2.创建可删除镜像的registry服务(可选)
+mkdir -p /etc/docker/registry/
+cat << EOF > /etc/docker/registry/config.yml 
+version: 0.1
+log:
+  fields:
+    service: registry
+storage:
+  delete:
+    enabled: true
+  cache:
+    blobdescriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+http:
+  addr: :5000
+  headers:
+    X-Content-Type-Options: [nosniff]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3
+EOF
+docker run -d -v /etc/docker/registry/:/etc/docker/registry/ -v /opt/registry:/var/lib/registry -p 4000:5000 --restart=always --name registry4000 registry:2.6.2
+
+
+#3.查看仓库数据大小
+docker exec -it registry4000 du -sch /var/lib/registry
+
+
+#4.删除镜像
+#DELETE /v2/<name>/manifests/<reference>
+#例：curl -I -X DELETE http://192.168.122.113:4000/v2/myalpine/manifests/sha256:8c03bb07a531c53ad7d0f6e7041b64d81f99c6e493cb39abba56d956b40eacbc
+curl -I -X DELETE http://192.168.122.113:4000/v2/myalpine/manifests/sha256:
+
+
+#5.执行垃圾回收(curl -I -X DELETE删除之后的可选操作)
+docker exec -it registry4000 registry garbage-collect /etc/docker/registry/config.yml
+
+
+
+
+
+
+
+
+
+
+
+
+
