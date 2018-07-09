@@ -6,7 +6,7 @@
 #1.设置代理(可选)
 cat << EOF > /etc/systemd/system/docker.service.d/proxy.conf
 [Service]
-Environment="http_proxy=http://192.168.122.28:80" "https_proxy=http://192.168.122.28:80" "NO_PROXY=localhost,127.0.0.1,192.168.122.114"
+Environment="http_proxy=http://192.168.122.28:80" "https_proxy=http://192.168.122.28:80" "NO_PROXY=localhost,127.0.0.1,192.168.122.113"
 EOF
 systemctl daemon-reload
 systemctl restart docker
