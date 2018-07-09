@@ -1,0 +1,25 @@
+#1.首先安装好Devstack
+
+#2.然后在部署了Devstack的主机中安装pycharm并运行
+su - root
+cd /opt/
+wget https://download.jetbrains.com/python/pycharm-community-2017.3.3.tar.gz
+tar -zxf pycharm-community-2017.3.3.tar.gz
+cd ~
+ln -s /opt/pycharm-community-2017.3.3/bin/pycharm.sh ~/pycharm.sh
+./pycharm.sh
+
+#3.在pycharm中打开目录/opt/stack/zun，从而导入zun项目
+
+#4.此时可以对zun项目进行修改
+我们以/opt/stack/zun/zun/service/periodic.py为例，在类ContainerStateSyncPeriodicJob中的sync_container_state()函数中插入一行log：
+LOG.debug('*'*20)
+
+#5.修改并保存后，重新编译修改的.py文件
+python -m py_compile /opt/stack/zun/zun/service/periodic.py
+
+#6.重启zun服务
+sudo systemctl restart devstack@zun-compute.service devstack@zun-wsproxy.service devstack@zun-api.service
+
+#7.查看日志可以看到我们加入的log信息，说明我们对zun项目代码的修改已经生效
+sudo journalctl -f --unit devstack@zun-compute.service
