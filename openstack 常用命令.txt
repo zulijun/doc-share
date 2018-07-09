@@ -1,0 +1,40 @@
+openstack image list
+
+镜像上传
+openstack image create "cirros" --file cirros-0.3.4-x86_64-disk.img --disk-format qcow2 --container-format bare --public
+
+物理主机寻找命令
+nova-manage cell_v2 discover_hosts
+
+设置shell环境变量
+source /opt/stack/devstack/openrc admin admin
+
+zun run --image-driver glance docker-test ping -c 4 8.8.8.8
+
+
+由于新版devstack使用systemd的方式来管理OpenStack各项服务，所以查询日志的方式也有所不同，现记录：
+systemd附带的主要功能之一是日志记录，这是一种访问日志的综合方式。这需要管理员通过journalctl来进行访问。journalctl拥有强大的查询功能，我们从一些常见的选项开始。
+
+
+查看特定的服务日志：
+sudo journalctl -f --unit devstack@n-cpu.service
+
+sudo journalctl -f --unit devstack@zun-compute.service
+
+查看多个服务的日志：
+sudo journalctl -f --unit devstack@n-cpu.service --unit devstack@n-cond.service
+
+或者你可以使用通配符查看多个服务的日志：
+sudo journalctl -f --unit devstack@n-*
+
+使用更精准的时间戳：
+sudo journalctl -f -o short-precise --unit devstack@n-cpu.service
+
+使用ASCII编码格式，可以显示字体颜色和使用一些命令，比如less，也是使用最多的命令：
+sudo journalctl -a --unit devstack@n-cpu.service
+
+使用grep命令结合journalctl使用，比如检索实例的 uuid：
+sudo journalctl -a --unit devstack@n-* | grep 58391b5c-036f-44d5-bd68-21d3c26349e6
+
+显示系统所有的服务
+systemctl list-unit-files
