@@ -114,6 +114,7 @@ sudo pip install
 
 #如果仍然报错,请先执行如下脚本
 ~/devstack/unstack.sh
+卸载后，必须在local.conf中增加enable_service placement-api
 
 #15.安装完成启用WEB服务,停止并禁用iptables服务
 sudo systemctl enable httpd
@@ -121,8 +122,33 @@ sudo systemctl stop iptables
 sudo systemctl disable iptables
 
 #16.登录dashboard时可能会有报错,刷新页面即可
+如果部署机重启需要重新增加虚拟磁盘供cinder使用
+losetup /dev/loop0 /opt/stack/data/stack-volumes-default-backing-file
+losetup /dev/loop1 /opt/stack/data/stack-volumes-lvmdriver-1-backing-file
 
-#17.安装PyCharm
+重启后记得重启kuryr，现在版本有bug
+systemctl restart devstack@kuryr-libnetwork
+
+#17.命令行测试
+source /opt/stack/devstack/openrc admin admin
+zun list
+查看是否有输出，如果出现http406，降低zun client的版本sudo pip install python-zunclient==1.2.0
+httpd的服务重启（不然horizon会报错）
+systemctl restart httpd
+
+使用docker hub下载
+zun run --name test cirros ping -c 4 8.8.8.8
+
+使用glance测试
+docker pull cirros
+docker save cirros | openstack image create docker-test --public --container-format docker --disk-format raw
+事先添加网络后
+zun run --image-driver glance docker-test ping 127.0.0.1
+
+物理主机寻找命令
+nova-manage cell_v2 discover_hosts
+
+#18.安装PyCharm
 su - root
 cd /opt/
 wget https://download.jetbrains.com/python/pycharm-community-2017.3.3.tar.gz
@@ -130,7 +156,7 @@ tar -zxf pycharm-community-2017.3.3.tar.gz
 cd ~
 ln -s /opt/pycharm-community-2017.3.3/bin/pycharm.sh ~/pycharm.sh 
 
-#18.root用户登录Gnome桌面,打开terminal执行命令
+#19.root用户登录Gnome桌面,打开terminal执行命令
 ~/pycharm.sh 
 #PyCharm配置debug环境详见文档
 #how-to-debug-zun-with-pycharm.docx
