@@ -61,12 +61,15 @@ git clone http://git.trystack.cn/openstack-dev/devstack -b stable/queens
 git clone http://git.trystack.cn/openstack/requirements -b stable/queens
 
 #11.修改脚本,避免文件下载失败导致安装中断
-sed -i 's/^    PYPI_ALTERNATIVE_URL=/    sudo yum -y install python-pip #PYPI_ALTERNATIVE_URL=/' ~/devstack/stack.sh
+sed -i 's/^    PYPI_ALTERNATIVE_URL=/    sudo yum -y install python2-pip #PYPI_ALTERNATIVE_URL=/' ~/devstack/stack.sh
 
-#12.stack用户创建local.conf文件,注意修改其中的HOST_IP变量为服务器的IP地址
+#12.升级setuptools
+sudo pip install --upgrade setuptools
+
+#13.stack用户创建local.conf文件,注意修改其中的HOST_IP变量为服务器的IP地址
 cat << EOF > ~/devstack/local.conf
 [[local|localrc]]
-HOST_IP=192.168.204.141 # change this to your IP address
+HOST_IP=192.168.204.141
 SERVICE_IP_VERSION=4
 DATABASE_PASSWORD=password
 RABBIT_PASSWORD=password
@@ -75,6 +78,7 @@ SERVICE_PASSWORD=password
 ADMIN_PASSWORD=password
 WSGI_MODE=mod_wsgi
 NOVA_USE_MOD_WSGI=False
+CINDER_USE_MOD_WSGI=False
 TARGET_BRANCH=stable/queens
 DOWNLOAD_DEFAULT_IMAGES=False
 NEUTRON_CREATE_INITIAL_NETWORKS=False
@@ -86,20 +90,18 @@ enable_plugin zun-tempest-plugin http://git.trystack.cn/openstack/zun-tempest-pl
 #This below plugin enables installation of container engine on Devstack.
 #The default container engine is Docker
 enable_plugin devstack-plugin-container http://git.trystack.cn/openstack/devstack-plugin-container stable/queens
-# In Kuryr, KURYR_CAPABILITY_SCOPE is `local` by default,
-# but we must change it to `global` in the multinode scenario.
+# In Kuryr, KURYR_CAPABILITY_SCOPE is ‘local’ by default,
+# but we must change it to ‘global’ in the multinode scenario.
 KURYR_CAPABILITY_SCOPE=local
 KURYR_ETCD_PORT=2379
 enable_plugin kuryr-libnetwork http://git.trystack.cn/openstack/kuryr-libnetwork stable/queens
 # install python-zunclient from git
-LIBS_FROM_GIT="python-zunclient"
+#LIBS_FROM_GIT="python-zunclient"
 # Optional:  uncomment to enable the Zun UI plugin in Horizon
 enable_plugin zun-ui http://git.trystack.cn/openstack/zun-ui stable/queens
-# Optional:  uncomment to enable the Heat plugin for container orchestration
-# enable_plugin heat https://git.openstack.org/openstack/heat
 EOF
 
-#13.stack用户运行stack.sh,安装失败请排除错误继续运行
+#14.stack用户运行stack.sh,安装失败请排除错误继续运行
 ~/devstack/stack.sh
 #报错指引
 如果遇到文件下载不下来，比如https://github.com/coreos/etcd/releases/download/v3.1.10/etcd-v3.1.10-linux-amd64.tar.gz，可以在自行通过wget等下载至/opt/stack/devstack/files文件夹下后，重新安装（一般直接再装就可以了）
@@ -113,14 +115,14 @@ sudo pip install
 #如果仍然报错,请先执行如下脚本
 ~/devstack/unstack.sh
 
-#14.安装完成启用WEB服务,停止并禁用iptables服务
+#15.安装完成启用WEB服务,停止并禁用iptables服务
 sudo systemctl enable httpd
 sudo systemctl stop iptables
 sudo systemctl disable iptables
 
-#15.登录dashboard时可能会有报错,刷新页面即可
+#16.登录dashboard时可能会有报错,刷新页面即可
 
-#16.安装PyCharm
+#17.安装PyCharm
 su - root
 cd /opt/
 wget https://download.jetbrains.com/python/pycharm-community-2017.3.3.tar.gz
@@ -128,7 +130,7 @@ tar -zxf pycharm-community-2017.3.3.tar.gz
 cd ~
 ln -s /opt/pycharm-community-2017.3.3/bin/pycharm.sh ~/pycharm.sh 
 
-#17.root用户登录Gnome桌面,打开terminal执行命令
+#18.root用户登录Gnome桌面,打开terminal执行命令
 ~/pycharm.sh 
 #PyCharm配置debug环境详见文档
 #how-to-debug-zun-with-pycharm.docx
