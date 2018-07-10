@@ -1,0 +1,324 @@
+#Ceph多节点部署
+
+#环境为4节点
+#管理节点	cephadmin
+#数据节点	cephnode{1..3}
+
+############准备环境############
+#1.所有节点安装时间同步服务
+yum -y install chrony
+systemctl start chronyd
+systemctl enable chronyd
+
+#2.确保所有节点网卡UP,且ONBOOT=yes
+grep ONBOOT /etc/sysconfig/network-scripts/ifcfg-*
+
+#3.所有节点确保主机名不会解析成127.0.0.1
+cat /etc/hosts
+
+#4.所有节点关闭防火墙
+#默认,Ceph监视器使用6789端口,Ceph OSD使用6800:7300端口范围,RGW实例使用7480端口。
+systemctl stop firewalld iptables
+systemctl disable firewalld iptables
+
+#5.所有节点禁用SELinux
+setenforce 0
+sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+
+#6.管理节点配置RSA登录
+ssh-keygen
+ssh-copy-id root@cephnode1
+ssh-copy-id root@cephnode2
+ssh-copy-id root@cephnode3
+
+
+
+############安装CEPH-DEPLOY############
+#1.所有节点安装epel源
+yum -y install epel-release
+
+#2.1.(可选1)管理节点安装Ceph-noarch源并修改为国内源
+yum -y install https://download.ceph.com/rpm-luminous/el7/noarch/ceph-release-1-0.el7.noarch.rpm
+sed -i 's+^baseurl=http://download.ceph.com+baseurl=http://mirrors.ustc.edu.cn/ceph+' /etc/yum.repos.d/ceph.repo
+
+#2.2.(可选2)管理节点配置Ceph-noarch源
+cat << EOF > /etc/yum.repos.d/Ceph-noarch.repo 
+[Ceph-noarch]
+name=Ceph-noarch
+baseurl=https://mirrors.ustc.edu.cn/ceph/rpm-luminous/el7/noarch/
+enabled=1
+gpgcheck=0
+EOF
+
+#3.管理节点安装ceph-deploy
+#yum update
+yum -y install ceph-deploy
+
+
+
+############创建Ceph集群############
+##(可选)重新部署需要执行的命令
+ceph-deploy purge cephnode{1..3}
+ceph-deploy purgedata cephnode{1..3}
+ceph-deploy forgetkeys
+rm -f ceph.*
+
+
+#1.管理节点上创建目录
+mkdir ~/ceph1
+cd ~/ceph1
+
+#2.创建Ceph源配置,使用自定义源
+cat <<EOF > ~/ceph1/cephdeploy.conf
+[ceph-deploy-global]
+[ceph-deploy-install]
+[Ceph-x86_64]
+default=True
+name=Ceph-x86_64
+baseurl=https://mirrors.ustc.edu.cn/ceph/rpm-luminous/el7/x86_64
+enabled=1
+gpgcheck=0
+gpgkey=https://mirrors.ustc.edu.cn/ceph/keys/release.asc
+EOF
+
+#3.创建集群节点配置文件
+#ceph-deploy new cephnode1 cephnode2 cephnode3
+ceph-deploy new cephnode{1..3}
+
+#4.修改配置文件vim ~/ceph1/ceph.conf
+public network = 10.0.10.0/24	#(可选)管理网
+cluster network = 10.0.20.0/24	#(可选)集群网络
+rbd_default_features = 1		#禁用内核不支持的特性
+[mon]
+mon_allow_pool_delete = true	#(可选)允许删除pool
+
+#5.安装Ceph软件包
+ceph-deploy install cephnode{1..3}
+
+#6.部署初始监视器并收集密钥
+ceph-deploy mon create-initial
+#完成该过程后，本地目录应具有以下密钥环:
+ceph.client.admin.keyring
+ceph.bootstrap-mgr.keyring
+ceph.bootstrap-osd.keyring
+ceph.bootstrap-mds.keyring
+ceph.bootstrap-rgw.keyring
+ceph.bootstrap-rbd.keyring
+
+#7.分发配置文件和管理密钥到所有节点
+#ceph-deploy --overwrite-conf admin cephadmin cephnode{1..3}
+ceph-deploy admin cephadmin cephnode{1..3}
+
+#8.部署管理器守护程序(仅适用于luminous及以后版本)
+ceph-deploy mgr create cephnode{1..3}
+
+#9.添加6个OSD.假设每个节点磁盘为vdb,vdc
+ceph-deploy osd create --data /dev/vdb cephnode1
+ceph-deploy osd create --data /dev/vdb cephnode2
+ceph-deploy osd create --data /dev/vdb cephnode3
+ceph-deploy osd create --data /dev/vdc cephnode1
+ceph-deploy osd create --data /dev/vdc cephnode2
+ceph-deploy osd create --data /dev/vdc cephnode3
+
+#10.检查集群状况
+#检查集群健康状况
+#ceph health
+ceph -s
+#检查集群仲裁状况
+ceph quorum_status --format json-pretty
+
+
+
+############配置Ceph RADOSGW############
+#1.在数据节点上安装Ceph Object Gateway软件包
+ceph-deploy install --rgw cephnode{1..3}
+
+#2.(可选)指定默认值,需根据osd及pool数量计算
+osd pool default pg num = 32
+osd pool default pgp num = 32
+
+#3.添加对象存储RGW实例，例如：
+ceph-deploy rgw create cephnode{1..3}
+#默认会创建4个pool
+#1 .rgw.root,2 default.rgw.control,3 default.rgw.meta,4 default.rgw.log,
+#手动调整pg,pgp示例
+#ceph osd pool set .rgw.root pg_num 32
+#ceph osd pool set .rgw.root pgp_num 32
+
+#4.(可选)RGW默认端口7480,修改ceph.conf文件并分发
+cat << EOF >> ~/ceph1/ceph.conf
+[client.rgw.cephnode1]
+rgw_frontends = "civetweb port=80"
+
+[client.rgw.cephnode2]
+rgw_frontends = "civetweb port=80"
+
+[client.rgw.cephnode3]
+rgw_frontends = "civetweb port=80"
+
+EOF
+ceph-deploy --overwrite-conf admin cephadmin cephnode{1..3}
+
+#5.分别重新启动ceph-radosgw服务使新端口设置生效
+systemctl restart ceph-radosgw@rgw.cephnode1.service
+systemctl restart ceph-radosgw@rgw.cephnode2.service
+systemctl restart ceph-radosgw@rgw.cephnode3.service
+
+#6.数据节点创建s3用户并测试
+radosgw-admin user create --uid=s3user --display-name="S3 User" --email=s3user@example.com
+radosgw-admin user info --uid=s3user
+#安装配置aws s3 client
+pip install aws
+aws configure
+#测试
+aws s3 mb s3://firstbucket --endpoint-url http://cephnode1/
+aws s3 cp /etc/sysconfig s3://firstbucket --recursive --endpoint-url http://cephnode1/
+aws s3 rb s3://firstbucket --force --endpoint-url http://cephnode1/
+
+#7.数据节点创建swift用户并测试
+radosgw-admin user create --uid="testuser" --display-name="First User"
+radosgw-admin subuser create --uid=testuser --subuser=testuser:swift --access=full
+#数据节点创建秘钥
+radosgw-admin key create --subuser=testuser:swift --key-type=swift --gen-secret
+#安装swiftclient
+pip install python-swiftclient
+#测试样例
+swift -A http://cephnode1/auth/1.0 -U testuser:swift -K 'rmOtbANAcH17h2MWwxwtQEQipf2WhwGzVSpBgTij' list
+
+#8.(可选)
+##存储/定位对象数据
+#ceph osd map {poolname} {object-name}
+#http://docs.ceph.com/docs/master/start/quick-ceph-deploy/
+##s3cmd安装使用
+#https://blog.csdn.net/litianze99/article/details/48438877
+
+
+
+
+
+############配置Ceph RBD############
+#较早内核版本集群节点运行CephFS or RBD客户端可能会造成死锁。
+#https://www.tuicool.com/articles/ymY7VzJ
+#http://docs.ceph.com/docs/master/start/os-recommendations
+
+#1.使用ceph-deploy在cephclient1节点上安装Ceph
+ceph-deploy install cephclient1
+
+#2.使用ceph-deploy复制Ceph的配置文件和ceph.client.admin.keyring到cephclient1。
+ceph-deploy admin cephclient1
+
+#3.确保密钥环文件具有适当的读取权限
+sudo chmod +r /etc/ceph/ceph.client.admin.keyring
+
+#4.创建存储池,pg-num  #所有pools pg总和 < mon_max_pg_per_osd * num_in_osds = 200 * 4 = 800
+#ceph osd pool create {pool-name} {pg-num} [{pgp-num}] [replicated] [crush-rule-name] [expected-num-objects]
+ceph osd pool create rbdpool 128
+
+#5.列出存储池
+ceph osd lspools
+
+#6.关联存储池至应用,未执行此操作ceph health会报错
+#ceph osd pool application enable {pool-name} {application-name}
+ceph osd pool application enable rbdpool rbd
+
+#7.使用rbd工具初始化存储池
+#rbd pool init <pool-name>
+rbd pool init rbdpool
+
+#8.删除存储池
+#确认ceph.conf中有如下参数
+mon_allow_pool_delete = true
+#删除存储池
+#ceph osd pool delete {pool-name} {pool-name} --yes-i-really-really-mean-it
+#ceph osd pool delete rbdpool rbdpool --yes-i-really-really-mean-it
+
+#9.(可选)创建BD用户
+#http://docs.ceph.com/docs/master/rbd/rados-rbd-cmds/#create-a-block-device-user
+
+#10.在cephclient1节点上,创建块设备映像
+#取消feature https://blog.csdn.net/minxihou/article/details/66478268
+#rbd feature disable {image-name} exclusive-lock, object-map, fast-diff, deep-flatten
+#rbd create --size {megabytes} {pool-name}/{image-name}
+#rbd create foo --size 4096 --image-feature layering [-m {mon-IP}] [-k /path/to/ceph.client.admin.keyring]
+#rbd create --size 1024 rbdpool/firstbd
+rbd create --size 1024 firstbd
+rbd list
+rbd info firstbd
+
+#11.在cephclient1节点上，将映像映射到块设备
+#rbd map foo --name client.admin [-m {mon-IP}] [-k /path/to/ceph.client.admin.keyring]
+rbd map firstbd --pool rbdpool --image firstbd --name client.admin
+rbd map firstbd
+#rbd unmap /dev/rbd1
+#rbdmap unmap-all
+
+#12.在cephclient1节点格式化块设备并挂载到指定目录
+mkfs.ext4 /dev/rbd1
+mkdir /mnt/rbd
+mount /dev/rbd1 /mnt/rbd
+cd /mnt/rbd
+
+#13.(可选)配置开机自动挂载RBD
+#http://docs.ceph.com/docs/master/man/8/rbdmap/
+
+##RBD操作
+#重命名
+#rbd mv {old-name} {new-name}
+#删除
+#rbd rm {pool-name}/{image-name}
+#rbd rm {image-name}
+#调整大小
+rbd resize --size 2048 firstbd (to increase)
+rbd resize --size 2048 firstbd --allow-shrink (to decrease)
+#恢复
+#rbd trash restore {image-id}
+#rbd trash restore {pool-name}/{image-id}
+rbd trash restore 2bf4474b0dc51
+
+#rbd-nbd
+http://blog.umcloud.com/container-ceph/
+
+
+
+
+###############配置CephFS###############
+#Ceph FS不如Ceph Block Device和Ceph Object Storage稳定
+
+#1.安装Ceph Metadata服务器，确保至少有一个MDS正在运行
+ceph-deploy mds create cephnode{1..3}
+
+#2.使用ceph-deploy在cephclient1节点上安装Ceph 
+ceph-deploy install cephclient1
+
+#3.确保Ceph存储群集处于active + clean状态
+#ceph -s [-m {monitor-ip-address}] [-k {path/to/ceph.client.admin.keyring}]
+ceph -s
+
+#4.创建Ceph FS
+#创建一些池和文件系统后MDS才变为活动状态
+#ceph osd pool create cephfs_data <pg_num>
+#ceph osd pool create cephfs_metadata <pg_num>
+ceph osd pool create cephfs_data 32
+ceph osd pool create cephfs_metadata 32
+#fs new命令启用文件系统
+#ceph fs new <fs_name> cephfs_metadata cephfs_data
+ceph fs new cephfs cephfs_metadata cephfs_data
+ceph fs ls
+
+#5.1(可选)cephclient1节点使用内核驱动挂载Ceph FS
+mkdir /mnt/mycephfs
+#Ceph存储集群默认使用身份验证.可指定用户name以及secretfile
+#mount -t ceph {ip-address-of-monitor}:6789:/ /mnt/mycephfs -o name=admin,secretfile=/etc/ceph/admin.secret
+#mount -t ceph {ip-address-of-monitor}:6789:/ /mnt/mycephfs -o name=admin,secret=AQALNulaAXf5GBAANNAGm+CWJtRSw9H0Z9hFPQ==
+mount -t ceph {ip-address-of-monitor}:6789:/ /mnt/mycephfs
+
+#5.2(可选)cephclient1节点用户空间挂载Ceph FS
+mkdir -p /mnt/mycephfs
+#ceph-fuse -m {ip-address-of-monitor}:6789 ~/mycephfs -k ./ceph.client.admin.keyring 
+ceph-fuse -m 192.168.0.1:6789 ~/mycephfs
+
+
+#OpenStack支持
+http://docs.ceph.com/docs/master/install/install-vm-cloud/
+
+

@@ -112,6 +112,7 @@ rpm -ivh cloudera-manager-daemons
 rpm -ivh cloudera-manager-server
 
 #2.所有节点上执行
+rpm -ivh oracle-j2sdk1.7-1.7.0+update67-1.x86_64.rpm
 mkdir -p /usr/share/java
 mkdir -p /usr/share/cmf/lib
 cp mysql-connector-java.jar /usr/share/java
@@ -132,7 +133,7 @@ http://192.168.122.113/cdh5/parcels/{latest_supported}/
 
 
 ###########创建集群添加主机并配置角色###########
-#1.添加主机,切记不要使用单用户安装,勾选安装oracle-j2sdk1.7*.rpm
+#1.添加主机,切记不要使用单用户安装,不勾选安装oracle-j2sdk1.7
 http://192.168.122.113:7180/cmf/express-wizard/hosts
 
 #2.角色配置样例###
